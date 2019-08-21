@@ -31,6 +31,11 @@ ALLOWED_HOSTS = []
 # Application definition
 
 INSTALLED_APPS = [
+    'fwtheme_django_ceda_serv',
+    'fwtheme_django',
+    'orgtheme_ceda_serv',
+    'orgtheme',
+    'cookielaw',
     'common_queries_api',
     'common_queries_display',
     'django.contrib.admin',
@@ -76,10 +81,7 @@ WSGI_APPLICATION = 'elasticsearch_common_queries.wsgi.application'
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
-    }
+
 }
 
 
@@ -121,4 +123,4 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 
-from .settings_local import import *
+from .settings_local import *
