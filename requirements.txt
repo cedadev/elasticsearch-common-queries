@@ -1,0 +1,13 @@
+certifi==2019.6.16
+Django==2.2.4
+django-classy-tags==0.9.0
+django-cookie-law==2.0.2
+elasticsearch==7.0.2
+git+https://github.com/cedadev/fwtheme-django==0.2#egg=fwtheme-django
+git+https://github.com/cedadev/fwtheme-django-ceda-serv==1.4.0#egg=fwtheme-ceda-serv
+git+https://github.com/cedadev/orgtheme==0.1#egg=orgtheme
+git+https://github.com/cedadev/orgtheme-ceda-serv==0.2#egg=orgtheme-ceda-serv
+pytest-runner==5.1
+pytz==2019.2
+sqlparse==0.3.0
+urllib3==1.25.3
