@@ -6,6 +6,21 @@ import json
 ES_CONNECTION = Elasticsearch(["https://jasmin-es1.ceda.ac.uk"])
 
 
+def sanitize_file_path(file_path):
+    if file_path != None:
+        new = list(file_path)
+        new.insert(0, '/')
+        index = len(new) - 1
+        while index != 0:
+            if new[index] == '/' and new[index] == new[index - 1]:
+                del new[index]
+            index -= 1
+        print(''.join(new))
+        return ''.join(new)
+    else:
+        return None
+
+
 def count_files_and_dirs(request, file_path=None):
     """
     Get a count of all the files and the directories under a specified path.
@@ -19,6 +34,8 @@ def count_files_and_dirs(request, file_path=None):
         "directories": <int>
     }
     """
+    # Sanitize file path
+    file_path = sanitize_file_path(file_path)
 
     # Query for fbi count under path
     fbi_query = {
@@ -32,8 +49,23 @@ def count_files_and_dirs(request, file_path=None):
     # Query for dirs count under path
     dirs_query = {
         "query": {
-            "match_phrase_prefix": {
-                "info.directory.analyzed": file_path
+            "bool": {
+                "must": [
+                    {
+                        "prefix": {
+                            "archive_path.keyword": {
+                                "value": file_path
+                            }
+                        }
+                    }
+                ],
+                "filter": {
+                    "range": {
+                        "depth": {
+                            "gte": file_path.count('/') + 1
+                        }
+                    }
+                }
             }
         }
     }
@@ -44,11 +76,11 @@ def count_files_and_dirs(request, file_path=None):
     }
 
     if file_path:
-        # Get the total number of files and directories from ceda-fbi
+        # Get the total number of files and directories from ceda-fbi and ceda-dirs
         count_files = ES_CONNECTION.count(index='ceda-fbi', body=fbi_query)
         count_dirs = ES_CONNECTION.count(index='ceda-dirs', body=dirs_query)
     else:
-        # Get the total number of files and directories from ceda-fbi
+        # Get the total number of files and directories from ceda-fbi and ceda-dirs
         count_files = ES_CONNECTION.count(index='ceda-fbi')
         count_dirs = ES_CONNECTION.count(index='ceda-dirs')
 
@@ -70,6 +102,8 @@ def total_size_of_files(request, file_path=None):
         "total_file_size": <int>,
     }
     """
+    # Sanitize file path
+    file_path = sanitize_file_path(file_path)
 
     # Query for fbi total size under path
     fbi_query = {
@@ -115,6 +149,8 @@ def total_number_of_formats(request, file_path=None):
         "formats": <dictionary>,
     }
     """
+    # Sanitize file path
+    file_path = sanitize_file_path(file_path)
 
     # Query for fbi formats
     fbi_query = {
@@ -159,6 +195,8 @@ def aggregate_variables(request, file_path=None): #TIME's OUT WHEN LARGE DIRECTO
         "variables": <dictionary>
     }
     """
+    # Sanitize file path
+    file_path = sanitize_file_path(file_path)
 
     # Query for aggregated variables from files in fbi
     fbi_query = {
@@ -206,6 +244,8 @@ def coverage_by_handlers(request, file_path=None):
         "percentage_coverage": <float>
     }
     """
+    # Sanitize file path
+    file_path = sanitize_file_path(file_path)
 
     # Query for total files from path in fbi
     fbi_query_all = {
@@ -218,11 +258,22 @@ def coverage_by_handlers(request, file_path=None):
 
     # Query for parameter files from path in fbi
     fbi_query_p = {
-        "query": {
-            "exists": {
-                "field": "info.phenomena"
+      "query": {
+        "bool": {
+          "must": [
+            {
+              "match_phrase_prefix": {
+              "info.directory.analyzed": file_path
+              }
             }
+          ],
+          "filter": {
+            "exists": {
+              "field": "info.phenomena"
+            }
+          }
         }
+      }
     }
 
     # Set up the response object
@@ -246,6 +297,3 @@ def coverage_by_handlers(request, file_path=None):
     response['percentage_coverage'] = coverage
 
     return HttpResponse(json.dumps(response), content_type='application/json')
-
-
-#TODO: Question 3, 5, 6
