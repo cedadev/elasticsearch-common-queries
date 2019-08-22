@@ -290,7 +290,11 @@ def coverage_by_handlers(request, file_path=None):
         total = ES_CONNECTION.count(index='ceda-fbi')
         parameters = ES_CONNECTION.count(index='ceda-fbi', body=fbi_query_p)
 
-    coverage = (parameters['count']/total['count']) * 100
+
+    if total['count'] == 0:
+        coverage = 0
+    else:
+        coverage = (parameters['count']/total['count']) * 100
 
     response['total_files'] = total['count']
     response['parameter_files'] = parameters['count']
