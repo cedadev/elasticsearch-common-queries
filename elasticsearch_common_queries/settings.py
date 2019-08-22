@@ -33,8 +33,6 @@ ALLOWED_HOSTS = []
 INSTALLED_APPS = [
     'fwtheme_django_ceda_serv',
     'fwtheme_django',
-    'orgtheme_ceda_serv',
-    'orgtheme',
     'cookielaw',
     'common_queries_api',
     'common_queries_display',
