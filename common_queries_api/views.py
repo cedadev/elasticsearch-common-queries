@@ -6,19 +6,25 @@ import json
 ES_CONNECTION = Elasticsearch(["https://jasmin-es1.ceda.ac.uk"])
 
 
-def sanitize_file_path(file_path):
-    if file_path != None:
+def sanitise_file_path(file_path):
+    if file_path == None:
+        return None
+    else:
         new = list(file_path)
-        new.insert(0, '/')
+        while new[-1] == '/':  # Delete all trailing forward slashes
+            del new[-1]
+            if len(new) == 0:
+                return None
+
+        new.insert(0, '/')  # Insert an initial '/' to be counted
+        new.append('/')  # Add an additional slash to count in later on
+
         index = len(new) - 1
-        while index != 0:
+        while index != 0:  # Iterate backwards through every character to remove duplicate consecutive '/'
             if new[index] == '/' and new[index] == new[index - 1]:
                 del new[index]
             index -= 1
-        print(''.join(new))
         return ''.join(new)
-    else:
-        return None
 
 
 def count_files_and_dirs(request, file_path=None):
@@ -34,8 +40,9 @@ def count_files_and_dirs(request, file_path=None):
         "directories": <int>
     }
     """
-    # Sanitize file path
-    file_path = sanitize_file_path(file_path)
+
+    # Sanitise file path
+    file_path = sanitise_file_path(file_path)
 
     # Query for fbi count under path
     fbi_query = {
@@ -46,6 +53,7 @@ def count_files_and_dirs(request, file_path=None):
         }
     }
 
+    minimum_dirs = 1
     # Query for dirs count under path
     dirs_query = {
         "query": {
@@ -62,7 +70,7 @@ def count_files_and_dirs(request, file_path=None):
                 "filter": {
                     "range": {
                         "depth": {
-                            "gte": file_path.count('/') + 1
+                            "gte": minimum_dirs
                         }
                     }
                 }
@@ -72,10 +80,14 @@ def count_files_and_dirs(request, file_path=None):
 
     # Setup the response object
     response = {
-        'path': file_path
+        'path': file_path[:-1] # To the user, the path is without the trailing slash. It was added in earlier
+                                # to account for a higher directory level
     }
 
     if file_path:
+        # If there is no path, it will still return a count for directories
+        minimum_dirs += file_path.count('/')
+
         # Get the total number of files and directories from ceda-fbi and ceda-dirs
         count_files = ES_CONNECTION.count(index='ceda-fbi', body=fbi_query)
         count_dirs = ES_CONNECTION.count(index='ceda-dirs', body=dirs_query)
@@ -102,8 +114,9 @@ def total_size_of_files(request, file_path=None):
         "total_file_size": <int>,
     }
     """
-    # Sanitize file path
-    file_path = sanitize_file_path(file_path)
+
+    # Sanitise file path
+    file_path = sanitise_file_path(file_path)
 
     # Query for fbi total size under path
     fbi_query = {
@@ -149,8 +162,9 @@ def total_number_of_formats(request, file_path=None):
         "formats": <dictionary>,
     }
     """
-    # Sanitize file path
-    file_path = sanitize_file_path(file_path)
+
+    # Sanitise file path
+    file_path = sanitise_file_path(file_path)
 
     # Query for fbi formats
     fbi_query = {
@@ -195,8 +209,9 @@ def aggregate_variables(request, file_path=None): #TIME's OUT WHEN LARGE DIRECTO
         "variables": <dictionary>
     }
     """
-    # Sanitize file path
-    file_path = sanitize_file_path(file_path)
+
+    # Sanitise file path
+    file_path = sanitise_file_path(file_path)
 
     # Query for aggregated variables from files in fbi
     fbi_query = {
@@ -244,8 +259,9 @@ def coverage_by_handlers(request, file_path=None):
         "percentage_coverage": <float>
     }
     """
-    # Sanitize file path
-    file_path = sanitize_file_path(file_path)
+
+    # Sanitise file path
+    file_path = sanitise_file_path(file_path)
 
     # Query for total files from path in fbi
     fbi_query_all = {
