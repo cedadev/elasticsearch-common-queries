@@ -1,6 +1,7 @@
 from django.shortcuts import render, HttpResponse
 from elasticsearch import Elasticsearch
 import json
+from math import ceil
 
 # Create your views here.
 ES_CONNECTION = Elasticsearch(["https://jasmin-es1.ceda.ac.uk"])
@@ -9,22 +10,17 @@ ES_CONNECTION = Elasticsearch(["https://jasmin-es1.ceda.ac.uk"])
 def sanitise_file_path(file_path):
     if file_path == None:
         return None
-    else:
-        new = list(file_path)
-        while new[-1] == '/':  # Delete all trailing forward slashes
-            del new[-1]
-            if len(new) == 0:
-                return None
 
-        new.insert(0, '/')  # Insert an initial '/' to be counted
-        new.append('/')  # Add an additional slash to count in later on
-
-        index = len(new) - 1
-        while index != 0:  # Iterate backwards through every character to remove duplicate consecutive '/'
-            if new[index] == '/' and new[index] == new[index - 1]:
-                del new[index]
-            index -= 1
-        return ''.join(new)
+    file_path_chars = list(file_path)
+    file_path_chars.insert(0, '/')
+    index= len(file_path_chars) - 1
+    while index != 0:
+        if file_path_chars[index] == '/' and file_path_chars[index] == file_path_chars[index-1]:
+            del file_path_chars[index]
+        index -= 1
+    if file_path_chars[-1] == '/':
+        del file_path_chars[-1]
+    return ''.join(file_path_chars)
 
 
 def count_files_and_dirs(request, file_path=None):
@@ -40,7 +36,6 @@ def count_files_and_dirs(request, file_path=None):
         "directories": <int>
     }
     """
-
     # Sanitise file path
     file_path = sanitise_file_path(file_path)
 
@@ -67,26 +62,27 @@ def count_files_and_dirs(request, file_path=None):
                         }
                     }
                 ],
-                "filter": {
-                    "range": {
-                        "depth": {
-                            "gte": minimum_dirs
-                        }
-                    }
-                }
             }
         }
     }
 
     # Setup the response object
     response = {
-        'path': file_path[:-1] # To the user, the path is without the trailing slash. It was added in earlier
-                                # to account for a higher directory level
+        'path': file_path
     }
 
     if file_path:
         # If there is no path, it will still return a count for directories
         minimum_dirs += file_path.count('/')
+        dirs_query['query']['bool']['filter'] = [
+            {
+                "range": {
+                    "depth": {
+                        "gte": minimum_dirs
+                    }
+                }
+            }
+        ]
 
         # Get the total number of files and directories from ceda-fbi and ceda-dirs
         count_files = ES_CONNECTION.count(index='ceda-fbi', body=fbi_query)
@@ -172,7 +168,7 @@ def total_number_of_formats(request, file_path=None):
         "aggs": {
             "file_formats": {
                 "terms": {
-                    "field": "info.format.keyword"
+                    "field": "info.type.keyword"
                 }
             }
         }
@@ -190,57 +186,40 @@ def total_number_of_formats(request, file_path=None):
             }
         }
 
-    # Get the total formats and counts from ceda-fbi
-    formats = ES_CONNECTION.search(index='ceda-fbi', body=fbi_query)
-
-    response['formats'] = formats['aggregations']['file_formats']['buckets']
-
-    return HttpResponse(json.dumps(response), content_type='application/json')
-
-
-def aggregate_variables(request, file_path=None): #TIME's OUT WHEN LARGE DIRECTORY
-    """
-    Gets the aggregated variables under a path
-    :param request: Django request object
-    :param file_path: The file path prefix to query
-    :return: JSON response
-    {
-        "path": "<file_path",
-        "variables": <dictionary>
-    }
-    """
-
-    # Sanitise file path
-    file_path = sanitise_file_path(file_path)
-
-    # Query for aggregated variables from files in fbi
-    fbi_query = {
-        'size': 0,
-        'aggs': {
-            'agg_variables': {
-                'terms': {
-                    'field': 'info.phenomena.agg_string'
+    # Quick query to find the number of files with info.type.keyword
+    results_per_page = 100
+    query = {
+        "query": {
+            "bool": {
+                "must": [
+                    {
+                        "match_phrase_prefix": {
+                            "info.directory.analyzed": file_path
+                        }
+                    }
+                ],
+                "filter": {
+                    "exists": {
+                        "field": "info.type.keyword"
+                    }
                 }
             }
         }
     }
+    res = ES_CONNECTION.count(index='ceda-fbi', body=query)
+    count = res['count']
+    upper_boundary = ceil(count / results_per_page)
 
-    # Set up the response object
-    response = {
-        'path': file_path
-    }
+    for i in range(1, upper_boundary):
+        # Get the aggregated variables from ceda-fbi
+        agg_variables = ES_CONNECTION.search(index='ceda-fbi', body=fbi_query)
+        after_key = agg_variables['aggregations']['group_by_agg_string']['after_key']['agg_string']
+        response['agg_variables'] += agg_variables['aggregations']['group_by_agg_string']['buckets']
 
-    if file_path:
-        fbi_query['query'] = {
-                     "match_phrase_prefix": {
-                         "info.directory.analyzed": file_path
-                     }
-                 }
+    # Get the total formats and counts from ceda-fbi
+    formats = ES_CONNECTION.search(index='ceda-fbi', body=fbi_query)
 
-    # Get the aggregated variables from ceda-fbi
-    variables = ES_CONNECTION.search(index='ceda-fbi', body=fbi_query)
-
-    response['agg_variables'] = variables['aggregations']['agg_variables']['buckets']
+    response['formats'] = formats['aggregations']['file_formats']['buckets']
 
     return HttpResponse(json.dumps(response), content_type='application/json')
 
@@ -297,14 +276,21 @@ def coverage_by_handlers(request, file_path=None):
         'path': file_path
     }
 
-    if file_path:
-        # Get the total and parameter file count from ceda-fbi
-        total = ES_CONNECTION.count(index='ceda-fbi', body=fbi_query_all)
-        parameters = ES_CONNECTION.count(index='ceda-fbi', body=fbi_query_p)
-    else:
-        # Get the total and parameter file count from ceda-fbi
-        total = ES_CONNECTION.count(index='ceda-fbi')
-        parameters = ES_CONNECTION.count(index='ceda-fbi', body=fbi_query_p)
+    if not file_path:
+        fbi_query_all['query'] = {
+            "match_all": {}
+        }
+        print("HERE")
+
+        fbi_query_p['query']['bool']['must'] = [
+            {
+                "match_all": {}
+            }
+        ]
+
+    # Get the total and parameter file count from ceda-fbi
+    total = ES_CONNECTION.count(index='ceda-fbi', body=fbi_query_all)
+    parameters = ES_CONNECTION.count(index='ceda-fbi', body=fbi_query_p)
 
 
     if total['count'] == 0:
@@ -315,5 +301,93 @@ def coverage_by_handlers(request, file_path=None):
     response['total_files'] = total['count']
     response['parameter_files'] = parameters['count']
     response['percentage_coverage'] = coverage
+
+    return HttpResponse(json.dumps(response), content_type='application/json')
+
+
+def aggregate_variables(request, file_path=None):
+    """
+    Gets the aggregated variables under a path
+    :param request: Django request object
+    :param file_path: The file path prefix to query
+    :return: JSON response
+    {
+        "path": "<file_path",
+        "variables": <dictionary>
+    }
+    """
+
+    # Sanitise file path
+    file_path = sanitise_file_path(file_path)
+
+    after_key = ''
+    results_per_page = 100
+
+    # Query for aggregated variables from files in fbi
+    fbi_query = {
+        'size': 0,
+        'aggs': {
+            'group_by_agg_string': {
+                'composite': {
+                    'after':{
+                        'agg_string': after_key
+                    },
+                    'size': results_per_page,
+                    'sources': [
+                        {
+                            'agg_string': {
+                                'terms': {
+                                    'field': 'info.phenomena.agg_string'
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+    }
+
+    # Set up the response object
+    response = {
+        'path': file_path,
+        'agg_variables': []
+    }
+
+    if file_path:
+        fbi_query['query'] = {
+                     "match_phrase_prefix": {
+                         "info.directory.analyzed": file_path
+                     }
+                 }
+
+
+    # Quick query to find the number of files with info.phenomena.agg_string
+    query = {
+        "query": {
+            "bool": {
+                "must": [
+                    {
+                        "match_phrase_prefix": {
+                            "info.directory.analyzed": file_path
+                        }
+                    }
+                ],
+                "filter": {
+                    "exists": {
+                        "field": "info.phenomena.agg_string"
+                    }
+                }
+            }
+        }
+    }
+    res = ES_CONNECTION.count(index='ceda-fbi', body=query)
+    count = res['count']
+    upper_boundary = ceil(count / results_per_page)
+
+    for i in range(1000):
+        # Get the aggregated variables from ceda-fbi
+        agg_variables = ES_CONNECTION.search(index='ceda-fbi', body=fbi_query)
+        after_key = agg_variables['aggregations']['group_by_agg_string']['after_key']['agg_string']
+        response['agg_variables'] += agg_variables['aggregations']['group_by_agg_string']['buckets']
 
     return HttpResponse(json.dumps(response), content_type='application/json')
