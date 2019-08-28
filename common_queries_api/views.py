@@ -8,12 +8,12 @@ ES_CONNECTION = Elasticsearch(["https://jasmin-es1.ceda.ac.uk"])
 
 
 def sanitise_file_path(file_path):
-    if file_path == None:
+    if not file_path:
         return None
 
     file_path_chars = list(file_path)
     file_path_chars.insert(0, '/')
-    index= len(file_path_chars) - 1
+    index = len(file_path_chars) - 1
     while index != 0:
         if file_path_chars[index] == '/' and file_path_chars[index] == file_path_chars[index-1]:
             del file_path_chars[index]
@@ -146,7 +146,7 @@ def total_size_of_files(request, file_path=None):
     return HttpResponse(json.dumps(response), content_type='application/json')
 
 
-def total_number_of_formats(request, file_path=None):
+def total_number_of_extensions(request, file_path=None):
     """
     Gets the total number of each file for each format type that exists within that path
     Works with or without a provided path
@@ -154,21 +154,36 @@ def total_number_of_formats(request, file_path=None):
     :param file_path: The file path prefix to query
     :return: JSON response
     {
-        "path": "<file_path",
-        "formats": <dictionary>,
+        "path": "<file_path>",
+        "number_of_extensions": <int>,
+        "file_extensions": <list>,
     }
     """
 
     # Sanitise file path
     file_path = sanitise_file_path(file_path)
 
-    # Query for fbi formats
+    after_key = ''
+
+    # Query for fbi extensions
     fbi_query = {
         "size": 0,
         "aggs": {
-            "file_formats": {
-                "terms": {
-                    "field": "info.type.keyword"
+            "group_by_extension": {
+                "composite": {
+                    "after": {
+                        "extension": after_key
+                    },
+                    "size": 1,
+                    "sources": [
+                        {
+                            "extension": {
+                                "terms": {
+                                    "field": "info.type.keyword"
+                                }
+                            }
+                        }
+                    ]
                 }
             }
         }
@@ -176,7 +191,9 @@ def total_number_of_formats(request, file_path=None):
 
     # Set up the response object
     response = {
-     'path': file_path
+        'path': file_path,
+        'number_of_extensions': 0,
+        'file_extensions': []
     }
 
     if file_path:
@@ -187,7 +204,6 @@ def total_number_of_formats(request, file_path=None):
         }
 
     # Quick query to find the number of files with info.type.keyword
-    results_per_page = 100
     query = {
         "query": {
             "bool": {
@@ -206,20 +222,20 @@ def total_number_of_formats(request, file_path=None):
             }
         }
     }
+
     res = ES_CONNECTION.count(index='ceda-fbi', body=query)
-    count = res['count']
-    upper_boundary = ceil(count / results_per_page)
+    doc_count = res['count']
+    response['number_of_extensions'] = doc_count
 
-    for i in range(1, upper_boundary):
-        # Get the aggregated variables from ceda-fbi
-        agg_variables = ES_CONNECTION.search(index='ceda-fbi', body=fbi_query)
-        after_key = agg_variables['aggregations']['group_by_agg_string']['after_key']['agg_string']
-        response['agg_variables'] += agg_variables['aggregations']['group_by_agg_string']['buckets']
-
-    # Get the total formats and counts from ceda-fbi
-    formats = ES_CONNECTION.search(index='ceda-fbi', body=fbi_query)
-
-    response['formats'] = formats['aggregations']['file_formats']['buckets']
+    while doc_count > 0:
+        # Get the extensions from ceda-fbi
+        fbi_query['aggs']['group_by_extension']['composite']['after']['extension'] = after_key
+        extensions = ES_CONNECTION.search(index='ceda-fbi', body=fbi_query)
+        after_key = extensions['aggregations']['group_by_extension']['after_key']['extension']
+        buckets = extensions['aggregations']['group_by_extension']['buckets']
+        response['file_extensions'] += buckets
+        for bucket in buckets:
+            doc_count -= bucket['doc_count']
 
     return HttpResponse(json.dumps(response), content_type='application/json')
 
@@ -258,7 +274,7 @@ def coverage_by_handlers(request, file_path=None):
           "must": [
             {
               "match_phrase_prefix": {
-              "info.directory.analyzed": file_path
+                  "info.directory.analyzed": file_path
               }
             }
           ],
@@ -280,7 +296,6 @@ def coverage_by_handlers(request, file_path=None):
         fbi_query_all['query'] = {
             "match_all": {}
         }
-        print("HERE")
 
         fbi_query_p['query']['bool']['must'] = [
             {
@@ -291,7 +306,6 @@ def coverage_by_handlers(request, file_path=None):
     # Get the total and parameter file count from ceda-fbi
     total = ES_CONNECTION.count(index='ceda-fbi', body=fbi_query_all)
     parameters = ES_CONNECTION.count(index='ceda-fbi', body=fbi_query_p)
-
 
     if total['count'] == 0:
         coverage = 0
@@ -313,6 +327,7 @@ def aggregate_variables(request, file_path=None):
     :return: JSON response
     {
         "path": "<file_path",
+        "number_of_agg_variables: <int>,
         "variables": <dictionary>
     }
     """
@@ -321,7 +336,6 @@ def aggregate_variables(request, file_path=None):
     file_path = sanitise_file_path(file_path)
 
     after_key = ''
-    results_per_page = 100
 
     # Query for aggregated variables from files in fbi
     fbi_query = {
@@ -329,10 +343,10 @@ def aggregate_variables(request, file_path=None):
         'aggs': {
             'group_by_agg_string': {
                 'composite': {
-                    'after':{
+                    'after': {
                         'agg_string': after_key
                     },
-                    'size': results_per_page,
+                    'size': 2,
                     'sources': [
                         {
                             'agg_string': {
@@ -350,6 +364,7 @@ def aggregate_variables(request, file_path=None):
     # Set up the response object
     response = {
         'path': file_path,
+        'number_of_agg_variables': 0,
         'agg_variables': []
     }
 
@@ -359,7 +374,6 @@ def aggregate_variables(request, file_path=None):
                          "info.directory.analyzed": file_path
                      }
                  }
-
 
     # Quick query to find the number of files with info.phenomena.agg_string
     query = {
@@ -381,13 +395,17 @@ def aggregate_variables(request, file_path=None):
         }
     }
     res = ES_CONNECTION.count(index='ceda-fbi', body=query)
-    count = res['count']
-    upper_boundary = ceil(count / results_per_page)
+    doc_count = res['count']
+    response['number_of_agg_variables'] = doc_count
 
-    for i in range(1000):
+    while doc_count > 0:
         # Get the aggregated variables from ceda-fbi
+        fbi_query['aggs']['group_by_agg_string']['composite']['after']['agg_string'] = after_key
         agg_variables = ES_CONNECTION.search(index='ceda-fbi', body=fbi_query)
         after_key = agg_variables['aggregations']['group_by_agg_string']['after_key']['agg_string']
-        response['agg_variables'] += agg_variables['aggregations']['group_by_agg_string']['buckets']
+        buckets = agg_variables['aggregations']['group_by_agg_string']['buckets']
+        response['agg_variables'] += buckets
+        for bucket in buckets:
+            doc_count -= bucket['doc_count']
 
     return HttpResponse(json.dumps(response), content_type='application/json')

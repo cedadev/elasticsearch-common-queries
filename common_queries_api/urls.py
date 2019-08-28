@@ -22,8 +22,8 @@ urlpatterns = [
     path('total_size/', views.total_size_of_files, name='total_size_all'),
     path('total_size/<path:file_path>', views.total_size_of_files, name='total_size_path'),
 
-    path('formats/', views.total_number_of_formats, name='formats_all'),
-    path('formats/<path:file_path>', views.total_number_of_formats, name='formats_path'),
+    path('extensions/', views.total_number_of_extensions, name='extensions_all'),
+    path('extensions/<path:file_path>', views.total_number_of_extensions, name='extensions_path'),
 
     path('agg_variables/', views.aggregate_variables, name='agg_variables_all'),
     path('agg_variables/<path:file_path>', views.aggregate_variables, name='agg_variables_path'),
