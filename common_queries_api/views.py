@@ -1,7 +1,6 @@
-from django.shortcuts import render, HttpResponse
+from django.http import JsonResponse
 from elasticsearch import Elasticsearch
 import json
-from math import ceil
 
 # Create your views here.
 ES_CONNECTION = Elasticsearch(["https://jasmin-es1.ceda.ac.uk"])
@@ -95,7 +94,7 @@ def count_files_and_dirs(request, file_path=None):
     response['files'] = count_files['count']
     response['directories'] = count_dirs['count']
 
-    return HttpResponse(json.dumps(response), content_type='application/json')
+    return JsonResponse(response)
 
 
 def total_size_of_files(request, file_path=None):
@@ -143,7 +142,7 @@ def total_size_of_files(request, file_path=None):
 
     response['total_file_size'] = total_file_size['aggregations']['total_size']['value']
 
-    return HttpResponse(json.dumps(response), content_type='application/json')
+    return JsonResponse(response)
 
 
 def total_number_of_extensions(request, file_path=None):
@@ -155,7 +154,7 @@ def total_number_of_extensions(request, file_path=None):
     :return: JSON response
     {
         "path": "<file_path>",
-        "number_of_extensions": <int>,
+        "number_of_documents": <int>,
         "file_extensions": <list>,
     }
     """
@@ -192,7 +191,7 @@ def total_number_of_extensions(request, file_path=None):
     # Set up the response object
     response = {
         'path': file_path,
-        'number_of_extensions': 0,
+        'number_of_documents': 0,
         'file_extensions': []
     }
 
@@ -225,7 +224,7 @@ def total_number_of_extensions(request, file_path=None):
 
     res = ES_CONNECTION.count(index='ceda-fbi', body=query)
     doc_count = res['count']
-    response['number_of_extensions'] = doc_count
+    response['number_of_documents'] = doc_count
 
     while doc_count > 0:
         # Get the extensions from ceda-fbi
@@ -237,7 +236,7 @@ def total_number_of_extensions(request, file_path=None):
         for bucket in buckets:
             doc_count -= bucket['doc_count']
 
-    return HttpResponse(json.dumps(response), content_type='application/json')
+    return JsonResponse(response)
 
 
 def coverage_by_handlers(request, file_path=None):
@@ -310,13 +309,13 @@ def coverage_by_handlers(request, file_path=None):
     if total['count'] == 0:
         coverage = 0
     else:
-        coverage = (parameters['count']/total['count']) * 100
+        coverage = round(((parameters['count']/total['count']) * 100),2)
 
     response['total_files'] = total['count']
     response['parameter_files'] = parameters['count']
     response['percentage_coverage'] = coverage
 
-    return HttpResponse(json.dumps(response), content_type='application/json')
+    return JsonResponse(response)
 
 
 def aggregate_variables(request, file_path=None):
@@ -327,8 +326,8 @@ def aggregate_variables(request, file_path=None):
     :return: JSON response
     {
         "path": "<file_path",
-        "number_of_agg_variables: <int>,
-        "variables": <dictionary>
+        "number_of_documents: <int>,
+        "agg_variables": <dictionary>
     }
     """
 
@@ -351,7 +350,7 @@ def aggregate_variables(request, file_path=None):
                         {
                             'agg_string': {
                                 'terms': {
-                                    'field': 'info.phenomena.agg_string'
+                                    'field': 'info.phenomena.best_name.keyword'
                                 }
                             }
                         }
@@ -364,7 +363,7 @@ def aggregate_variables(request, file_path=None):
     # Set up the response object
     response = {
         'path': file_path,
-        'number_of_agg_variables': 0,
+        'number_of_documents': 0,
         'agg_variables': []
     }
 
@@ -396,7 +395,7 @@ def aggregate_variables(request, file_path=None):
     }
     res = ES_CONNECTION.count(index='ceda-fbi', body=query)
     doc_count = res['count']
-    response['number_of_agg_variables'] = doc_count
+    response['number_of_documents'] = doc_count
 
     while doc_count > 0:
         # Get the aggregated variables from ceda-fbi
@@ -408,4 +407,4 @@ def aggregate_variables(request, file_path=None):
         for bucket in buckets:
             doc_count -= bucket['doc_count']
 
-    return HttpResponse(json.dumps(response), content_type='application/json')
+    return JsonResponse(response)
